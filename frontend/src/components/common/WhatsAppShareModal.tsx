@@ -21,6 +21,7 @@ interface WhatsAppShareModalProps {
   onClose: () => void;
   trip: TripInviteData;
   inviterName?: string;
+  inviteToken?: string;
 }
 
 export const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
@@ -28,14 +29,17 @@ export const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
   onClose,
   trip,
   inviterName,
+  inviteToken,
 }) => {
   const [copiedMessage, setCopiedMessage] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
 
   if (!isOpen) return null;
 
-  const inviteText = generateTripInviteText(trip, inviterName);
-  const joinUrl = `${window.location.origin}/join/${trip.id}`;
+  const joinUrl = inviteToken
+    ? `${window.location.origin}/join/${inviteToken}`
+    : `${window.location.origin}/join/${trip.id}`;
+  const inviteText = generateTripInviteText(trip, inviterName, inviteToken);
 
   const handleCopyMessage = async () => {
     try {

@@ -1,8 +1,8 @@
 # Trip Finance — Project Status & Roadmap Tracker
 
 > **Last Updated:** September 21, 2026  
-> **Current Status:** Phases 0, 1, 2, 3, 4, and 6 Complete (6 / 24 Phases Complete)  
-> **Next Milestone:** Phase 5 — Invite System (Cryptographic invite tokens & revocation)
+> **Current Status:** Phases 0, 1, 2, 3, 4, 5, and 6 Complete (7 / 24 Phases Complete)  
+> **Next Milestone:** Phase 7 — Expense Management (Multi-mode splitting & ledger)
 
 ---
 
@@ -15,9 +15,9 @@ Trip Finance is a full-stack, modular-monolith web application built with **Fast
 | :--- | :---: | :--- | :--- |
 | **Backend API** | 🟢 Active | `http://127.0.0.1:8000` | FastAPI with reload, Swagger docs at `/docs`, Health check at `/api/health` |
 | **Frontend Web App** | 🟢 Active | `http://localhost:5173` | React 18, TypeScript, Vite, Tailwind CSS |
-| **Database** | 🟢 Active | `sqlite:///./trip_finance.db` | SQLAlchemy ORM + Alembic migrations (`001_initial_users`, `002_friends_groups_trips`) |
-| **Automated Tests** | 🟢 Passing | 18/18 tests pass | Pytest test suite covering auth, friends, groups, trips, guest join, guest isolation, owner direct guest addition, guest conversion |
-| **Production Build** | 🟢 Passing | `npm run build` | 0 TypeScript errors, bundle size ~481 kB JS |
+| **Database** | 🟢 Active | `sqlite:///./trip_finance.db` | SQLAlchemy ORM + Alembic migrations (`001_initial_users`, `002_friends_groups_trips`, `003_add_trip_invites`) |
+| **Automated Tests** | 🟢 Passing | 20/20 tests pass | Pytest test suite covering auth, friends, groups, trips, invites, guest join, guest isolation, direct guest addition, and guest conversion |
+| **Production Build** | 🟢 Passing | `npm run build` | 0 TypeScript errors, bundle size ~495 kB JS |
 
 ---
 
@@ -32,7 +32,7 @@ Tracked against [phases.md](file:///c:/Users/PC-5/Desktop/trip_mang/phases.md):
 | **2** | **Friends & Groups** | 🟢 **Completed** | 2026-09-21 | User search, friend requests (send/accept/decline), friends list, reusable groups management. |
 | **3** | **Trip Management** | 🟢 **Completed** | 2026-09-21 | Trip creation (dates, destination, budget, type), owner assignment, member selection, trip overview, trip settings editing. |
 | **4** | **Hybrid Membership** | 🟢 **Completed** | 2026-09-21 | Support for registered and guest members, guest session tokens, strict guest isolation, owner direct guest companion addition, seamless guest-to-account conversion preserving history. |
-| **5** | **Invite System** | ⏸️ Queued | — | Cryptographic invite tokens, join workflows, revoke/regenerate invites. |
+| **5** | **Invite System** | 🟢 **Completed** | 2026-09-21 | Cryptographically secure invite tokens (SHA-256 hashed in DB), custom expiration presets (24h, 7d, 30d, Never), usage tracking (`max_uses`), owner link management (disable, regenerate), public preview, token join (registered & guest). |
 | **6** | **WhatsApp Trip Sharing** | 🟢 **Completed** | 2026-09-21 | One-click outbound WhatsApp formatted invitations (`https://api.whatsapp.com/send?text=...`), message preview modal, public join preview page, and join endpoints (strictly client deep-link, zero WhatsApp scraping). |
 | **7** | **Expense Management** | ⏸️ Queued | — | Add/edit/delete expenses, categories, 4 split types (Equal, Exact, Percentage, Shares). |
 | **8** | **Balance & Settlement Engine** | ⏸️ Queued | — | Decimal-safe net balance calculations (`Total Paid - Total Share`), debt minimization graph. |
@@ -139,11 +139,46 @@ Tracked against [phases.md](file:///c:/Users/PC-5/Desktop/trip_mang/phases.md):
   - Created `JoinTripPage` (`/join/:id`) for seamless invited friend onboarding with login/register/guest options.
 * **Tests:** Added tests for invite preview, joining trips, and guest conversion. 18/18 tests passing.
 
+### Phase 5: Invite System
+* **Cryptographic Token Architecture:**
+  - Secure random token generation via `secrets.token_urlsafe(32)` yielding 43-char URL-safe tokens.
+  - One-way SHA-256 hashing before DB storage (`token_hash = sha256(raw_token)`). Raw tokens are never stored plaintext in the database.
+  - Lookups hash incoming token and query indexed `token_hash`.
+  - Migration `003_add_trip_invites` applied to create indexed `trip_invites` table.
+* **Granular Expiration & Usage Controls:**
+  - Configurable expiration presets: 24 Hours, 7 Days, 30 Days (default), or Never expires.
+  - Optional `max_uses` threshold limit and real-time usage counter tracking (`use_count`).
+  - Automatic expiration calculation during preview and join enforcement.
+* **Owner Management Actions:**
+  - `POST /api/trips/{id}/invites`: Generate customized invite link.
+  - `GET /api/trips/{id}/invites`: List all links created with status, expiration, and usage counts.
+  - `GET /api/trips/{id}/invites/active`: Fetch or create primary active link.
+  - `POST /api/trips/{id}/invites/{invite_id}/disable`: Revoke an invite link immediately.
+  - `POST /api/trips/{id}/invites/{invite_id}/regenerate`: Rotate token, invalidate previous token, and reset usage counter.
+* **Public Preview & Token Join Endpoints:**
+  - `GET /api/invites/{token}`: Unauthenticated safe preview with trip metadata, organizer, active status, expiration flags.
+  - `POST /api/invites/{token}/join`: Authenticated registered user joins trip, increments usage counter.
+  - `POST /api/invites/{token}/join-guest`: Anonymous companion joins with display name, receives signed guest token, increments usage counter.
+* **Frontend UI & WhatsApp Integration:**
+  - Built `ManageInvitesModal` (`frontend/src/components/trips/ManageInvitesModal.tsx`) with link copying, WhatsApp share launcher, expiration selector, link history, revocation, and regeneration controls.
+  - Upgraded `JoinTripPage` to validate cryptographic tokens, show expiration/inactivity alerts, and fall back to legacy trip IDs if needed.
+  - Updated `WhatsAppShareModal` and `TripOverviewPage` to dynamically inject active cryptographic invite tokens into WhatsApp invitation texts.
+* **Automated Tests:** Added `backend/tests/test_invites.py` covering full lifecycle: token creation, public preview, expiration, max uses limit, registered join, guest join, revocation, and token rotation. 20/20 backend tests passing.
+
 ---
 
 ## 4. Changelog & Activity Log
 
 ### [2026-09-21]
+- **Implemented Phase 5 (Invite System):**
+  - Created Alembic migration `003_add_trip_invites.py` and executed database upgrade.
+  - Created Pydantic schemas in `backend/app/schemas/invite.py`.
+  - Created database repository `backend/app/repositories/invite_repository.py`.
+  - Built service logic in `backend/app/services/invite_service.py` with SHA-256 token hashing, expiration checks, and token join handlers.
+  - Implemented routers: `backend/app/api/invites.py` and extended `backend/app/api/trips.py`.
+  - Built frontend `ManageInvitesModal`, updated `JoinTripPage`, and integrated active token links with `WhatsAppShareModal`.
+  - Added 2 new comprehensive integration tests in `backend/tests/test_invites.py` (20/20 tests passing).
+  - Verified frontend production build (`npm run build`) with 0 errors.
 - **Implemented Phase 4 (Hybrid Membership) & Integrated with Phase 6 (WhatsApp Trip Sharing):**
   - Added guest security utilities in `backend/app/security/guest_auth.py` (signed guest tokens, token hashing).
   - Implemented `AuthActor` and `get_current_actor` dependency supporting registered users and guest actors.

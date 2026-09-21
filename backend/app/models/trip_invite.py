@@ -15,7 +15,7 @@ class TripInvite(Base):
     id = Column(String(36), primary_key=True, default=generate_uuid, index=True)
     trip_id = Column(String(36), ForeignKey("trips.id", ondelete="CASCADE"), nullable=False, index=True)
     code = Column(String(64), unique=True, nullable=False, index=True)
-    token_hash = Column(String(255), nullable=True)
+    token_hash = Column(String(255), nullable=True, index=True)
     created_by_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     expires_at = Column(DateTime, nullable=True)
     max_uses = Column(Integer, nullable=True)

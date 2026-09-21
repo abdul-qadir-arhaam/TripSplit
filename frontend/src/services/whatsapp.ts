@@ -15,9 +15,11 @@ export interface TripInviteData {
  * Generates formatted WhatsApp invitation text for a trip.
  * Strictly adheres to client-side deep linking without direct scraping or WhatsApp bot APIs.
  */
-export function generateTripInviteText(trip: TripInviteData, inviterName?: string): string {
+export function generateTripInviteText(trip: TripInviteData, inviterName?: string, inviteTokenOrUrl?: string): string {
   const origin = window.location.origin;
-  const joinUrl = `${origin}/join/${trip.id}`;
+  const joinUrl = inviteTokenOrUrl 
+    ? (inviteTokenOrUrl.startsWith('http') ? inviteTokenOrUrl : `${origin}/join/${inviteTokenOrUrl}`)
+    : `${origin}/join/${trip.id}`;
   const dates = formatTripDateRange(trip.start_date, trip.end_date);
   const inviterGreeting = inviterName ? `*${inviterName}* has invited you` : "You're invited";
 

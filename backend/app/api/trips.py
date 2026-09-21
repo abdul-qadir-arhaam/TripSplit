@@ -18,7 +18,9 @@ from app.schemas.trip import (
     TripGuestConvertResponse,
     TripGuestSessionResponse,
 )
+from app.schemas.invite import InviteCreate, InviteResponse
 from app.services.trip_service import trip_service
+from app.services.invite_service import invite_service
 
 router = APIRouter(prefix="/trips", tags=["Trips"])
 
@@ -152,4 +154,57 @@ def get_guest_session_info(
 ):
     """Validate and get current guest participant session info."""
     return trip_service.get_guest_session_info(db, actor, trip_id)
+
+
+@router.post("/{trip_id}/invites", response_model=InviteResponse, status_code=status.HTTP_201_CREATED)
+def generate_trip_invite(
+    trip_id: str,
+    payload: InviteCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Generate a cryptographically secure invite link for the trip with optional expiry and max uses."""
+    return invite_service.generate_invite(db, current_user, trip_id, payload)
+
+
+@router.get("/{trip_id}/invites", response_model=List[InviteResponse])
+def list_trip_invites(
+    trip_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """List all invite links generated for this trip."""
+    return invite_service.list_trip_invites(db, current_user, trip_id)
+
+
+@router.get("/{trip_id}/invites/active", response_model=InviteResponse)
+def get_active_trip_invite(
+    trip_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get the active valid invite link for a trip, or create a default 30-day link."""
+    return invite_service.get_or_create_active_invite(db, current_user, trip_id)
+
+
+@router.post("/{trip_id}/invites/{invite_id}/disable", response_model=InviteResponse)
+def disable_trip_invite(
+    trip_id: str,
+    invite_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Disable/revoke an invite link so it can no longer be used."""
+    return invite_service.disable_invite(db, current_user, trip_id, invite_id)
+
+
+@router.post("/{trip_id}/invites/{invite_id}/regenerate", response_model=InviteResponse)
+def regenerate_trip_invite(
+    trip_id: str,
+    invite_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Regenerate a fresh cryptographic token for an invite link."""
+    return invite_service.regenerate_invite(db, current_user, trip_id, invite_id)
 

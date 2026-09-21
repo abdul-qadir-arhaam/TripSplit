@@ -17,10 +17,12 @@ import {
   MessageCircle,
   Sparkles,
   Zap,
-  UserCheck
+  UserCheck,
+  Link2
 } from 'lucide-react';
 import { tripsApi } from '../../features/trips/api';
 import { friendsApi } from '../../features/friends/api';
+import { invitesApi } from '../../features/invites/api';
 import type { TripDetail } from '../../features/trips/types';
 import type { FriendUser } from '../../features/friends/types';
 import { useAuth } from '../../hooks/useAuth';
@@ -32,6 +34,7 @@ import { Spinner } from '../../components/ui/Spinner';
 import { ErrorState } from '../../components/common/ErrorState';
 import { WhatsAppShareModal } from '../../components/common/WhatsAppShareModal';
 import { ConvertGuestModal } from '../../components/trips/ConvertGuestModal';
+import { ManageInvitesModal } from '../../components/trips/ManageInvitesModal';
 import { formatTripDateRange, getTripTimeStatus } from '../../utils/dates';
 
 export const TripOverviewPage: React.FC = () => {
@@ -47,6 +50,10 @@ export const TripOverviewPage: React.FC = () => {
 
   // WhatsApp Invite Modal state
   const [showWhatsAppModal, setShowWhatsAppModal] = useState(false);
+  const [activeInviteToken, setActiveInviteToken] = useState<string | undefined>(undefined);
+
+  // Invite Links Modal state (Phase 5)
+  const [showInvitesModal, setShowInvitesModal] = useState(false);
 
   // Guest conversion modal
   const [showConvertModal, setShowConvertModal] = useState(false);
@@ -79,6 +86,12 @@ export const TripOverviewPage: React.FC = () => {
       setEditEndDate(data.end_date || '');
       setEditBudget(data.budget ? String(data.budget) : '');
       setEditStatus(data.status);
+
+      // Fetch active invite token for WhatsApp & sharing
+      invitesApi.getActiveTripInvite(id).then((inv) => {
+        if (inv?.token) setActiveInviteToken(inv.token);
+        else if (inv?.code) setActiveInviteToken(inv.code);
+      }).catch(() => {});
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to load trip details.');
     } finally {
@@ -317,6 +330,14 @@ export const TripOverviewPage: React.FC = () => {
                 <Button
                   variant="secondary"
                   size="sm"
+                  leftIcon={<Link2 className="w-4 h-4 text-brand-400" />}
+                  onClick={() => setShowInvitesModal(true)}
+                >
+                  Invite Links
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
                   leftIcon={<Edit3 className="w-4 h-4" />}
                   onClick={() => setShowEditModal(true)}
                 >
@@ -402,14 +423,25 @@ export const TripOverviewPage: React.FC = () => {
               </Button>
 
               {isOwner && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  leftIcon={<UserPlus className="w-3.5 h-3.5" />}
-                  onClick={() => setShowAddMemberModal(true)}
-                >
-                  Add Companion
-                </Button>
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-xs"
+                    leftIcon={<Link2 className="w-3.5 h-3.5 text-brand-400" />}
+                    onClick={() => setShowInvitesModal(true)}
+                  >
+                    Invite Links
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    leftIcon={<UserPlus className="w-3.5 h-3.5" />}
+                    onClick={() => setShowAddMemberModal(true)}
+                  >
+                    Add Companion
+                  </Button>
+                </>
               )}
             </div>
           </div>
@@ -778,6 +810,25 @@ export const TripOverviewPage: React.FC = () => {
         <WhatsAppShareModal
           isOpen={showWhatsAppModal}
           onClose={() => setShowWhatsAppModal(false)}
+          trip={trip}
+          inviterName={user?.name}
+          inviteToken={activeInviteToken}
+        />
+      )}
+
+      {/* Manage Invites Modal (Phase 5) */}
+      {trip && (
+        <ManageInvitesModal
+          isOpen={showInvitesModal}
+          onClose={() => {
+            setShowInvitesModal(false);
+            if (id) {
+              invitesApi.getActiveTripInvite(id).then((inv) => {
+                if (inv?.token) setActiveInviteToken(inv.token);
+                else if (inv?.code) setActiveInviteToken(inv.code);
+              }).catch(() => {});
+            }
+          }}
           trip={trip}
           inviterName={user?.name}
         />

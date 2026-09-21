@@ -4,6 +4,7 @@ from app.models.group import Group
 from app.models.group_member import GroupMember
 from app.models.trip import Trip
 from app.models.trip_member import TripMember
+from app.models.trip_invite import TripInvite
 
 __all__ = [
     "User",
@@ -12,4 +13,5 @@ __all__ = [
     "GroupMember",
     "Trip",
     "TripMember",
+    "TripInvite",
 ]

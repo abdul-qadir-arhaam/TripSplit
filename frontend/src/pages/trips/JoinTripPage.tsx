@@ -8,13 +8,17 @@ import {
   CheckCircle2, 
   ArrowRight, 
   LogIn, 
-  UserPlus,
-  AlertCircle,
-  User,
-  Zap
+  UserPlus, 
+  AlertCircle, 
+  User, 
+  Zap,
+  Clock,
+  Lock
 } from 'lucide-react';
 import { tripsApi } from '../../features/trips/api';
+import { invitesApi } from '../../features/invites/api';
 import type { TripInviteInfo } from '../../features/trips/types';
+import type { InvitePreview } from '../../features/invites/types';
 import { useAuth } from '../../hooks/useAuth';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
@@ -28,7 +32,9 @@ export const JoinTripPage: React.FC = () => {
   const navigate = useNavigate();
   const { isAuthenticated, user, isGuest, guestSession, setGuestSession } = useAuth();
 
-  const [trip, setTrip] = useState<TripInviteInfo | null>(null);
+  const [tripPreview, setTripPreview] = useState<InvitePreview | TripInviteInfo | null>(null);
+  const [isTokenInvite, setIsTokenInvite] = useState(false);
+  const [targetTripId, setTargetTripId] = useState<string>('');
   const [isLoading, setIsLoading] = useState(true);
   const [isJoining, setIsJoining] = useState(false);
   const [guestName, setGuestName] = useState('');
@@ -38,11 +44,26 @@ export const JoinTripPage: React.FC = () => {
 
   useEffect(() => {
     if (!id) return;
-    tripsApi
-      .getTripInviteInfo(id)
-      .then(setTrip)
-      .catch((err) => {
-        setError(err.response?.data?.detail || 'This trip invitation link is invalid or expired.');
+
+    // First attempt: preview as an invite token
+    invitesApi
+      .previewInvite(id)
+      .then((preview) => {
+        setTripPreview(preview);
+        setIsTokenInvite(true);
+        setTargetTripId(preview.trip_id);
+      })
+      .catch(() => {
+        // Fallback: preview as legacy trip ID
+        return tripsApi.getTripInviteInfo(id)
+          .then((legacy) => {
+            setTripPreview(legacy);
+            setIsTokenInvite(false);
+            setTargetTripId(legacy.id);
+          })
+          .catch((err) => {
+            setError(err.response?.data?.detail || 'This trip invitation link is invalid or expired.');
+          });
       })
       .finally(() => setIsLoading(false));
   }, [id]);
@@ -52,10 +73,16 @@ export const JoinTripPage: React.FC = () => {
     setIsJoining(true);
     setError(null);
     try {
-      await tripsApi.joinTrip(id);
+      let resolvedTripId = targetTripId || id;
+      if (isTokenInvite) {
+        const joined = await invitesApi.joinViaToken(id);
+        resolvedTripId = joined.id;
+      } else {
+        await tripsApi.joinTrip(id);
+      }
       setSuccessJoined(true);
       setTimeout(() => {
-        navigate(`/trips/${id}`);
+        navigate(`/trips/${resolvedTripId}`);
       }, 1000);
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to join trip. Please try again.');
@@ -70,16 +97,22 @@ export const JoinTripPage: React.FC = () => {
     setIsGuestJoining(true);
     setError(null);
     try {
-      const res = await tripsApi.joinTripAsGuest(id, guestName.trim());
+      let res;
+      if (isTokenInvite) {
+        res = await invitesApi.joinGuestViaToken(id, guestName.trim());
+      } else {
+        res = await tripsApi.joinTripAsGuest(id, guestName.trim());
+      }
+
       setGuestSession({
-        tripId: id,
+        tripId: res.trip.id,
         memberId: res.member.id,
         displayName: res.member.display_name,
         token: res.guest_token,
       });
       setSuccessJoined(true);
       setTimeout(() => {
-        navigate(`/trips/${id}`);
+        navigate(`/trips/${res.trip.id}`);
       }, 1000);
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to join as guest. Please try again.');
@@ -89,14 +122,14 @@ export const JoinTripPage: React.FC = () => {
 
   if (isLoading) return <Spinner size="lg" />;
 
-  if (error && !trip) {
+  if (error && !tripPreview) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4 bg-slate-950 text-slate-100">
         <Card variant="glass" className="max-w-md w-full p-8 text-center space-y-4 border-slate-800">
           <div className="w-12 h-12 rounded-2xl bg-rose-950/60 border border-rose-800/80 text-rose-400 mx-auto flex items-center justify-center">
             <AlertCircle className="w-6 h-6" />
           </div>
-          <h1 className="text-xl font-bold text-white">Trip Not Found</h1>
+          <h1 className="text-xl font-bold text-white">Invalid Invitation</h1>
           <p className="text-xs text-slate-400">{error || 'This invitation link is not valid.'}</p>
           <Link to="/">
             <Button variant="outline" size="sm" className="mt-2">
@@ -108,10 +141,15 @@ export const JoinTripPage: React.FC = () => {
     );
   }
 
-  if (!trip) return null;
+  if (!tripPreview) return null;
 
-  const isCurrentGuestForTrip = isGuest && guestSession?.tripId === id;
-  const dateRangeText = formatTripDateRange(trip.start_date, trip.end_date);
+  // Check validity if token invite
+  const tokenPreview = isTokenInvite ? (tripPreview as InvitePreview) : null;
+  const isInviteExpired = tokenPreview?.is_expired;
+  const isInviteInactive = tokenPreview && (!tokenPreview.is_valid && !tokenPreview.is_expired);
+
+  const isCurrentGuestForTrip = isGuest && guestSession?.tripId === targetTripId;
+  const dateRangeText = formatTripDateRange(tripPreview.start_date, tripPreview.end_date);
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-slate-950 text-slate-100 relative overflow-hidden">
@@ -130,21 +168,21 @@ export const JoinTripPage: React.FC = () => {
             You're Invited!
           </h1>
           <p className="text-xs text-slate-400">
-            <strong className="text-slate-200">{trip.owner_name}</strong> invited you to join this trip on Trip Finance
+            <strong className="text-slate-200">{tripPreview.owner_name}</strong> invited you to join this trip on Trip Finance
           </p>
         </div>
 
         {/* Trip Summary Card */}
         <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-4 shadow-inner">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-lg font-bold text-white">{trip.name}</span>
-            <Badge variant="brand" size="sm">{trip.trip_type}</Badge>
+            <span className="text-lg font-bold text-white">{tripPreview.name}</span>
+            <Badge variant="brand" size="sm">{tripPreview.trip_type}</Badge>
           </div>
 
           <div className="space-y-2 text-xs text-slate-300">
             <div className="flex items-center gap-2">
               <MapPin className="w-4 h-4 text-brand-400 shrink-0" />
-              <span>{trip.destination}</span>
+              <span>{tripPreview.destination}</span>
             </div>
 
             <div className="flex items-center gap-2">
@@ -154,16 +192,41 @@ export const JoinTripPage: React.FC = () => {
 
             <div className="flex items-center gap-2">
               <Users className="w-4 h-4 text-slate-400 shrink-0" />
-              <span>{trip.member_count} companions already joined</span>
+              <span>{tripPreview.member_count} companions already joined</span>
             </div>
           </div>
 
-          {trip.description && (
+          {tripPreview.description && (
             <p className="text-xs text-slate-400 border-t border-slate-800/80 pt-3 leading-relaxed">
-              {trip.description}
+              {tripPreview.description}
             </p>
           )}
         </div>
+
+        {/* Expiration or Inactivity Alerts */}
+        {isInviteExpired && (
+          <div className="p-4 rounded-xl bg-rose-950/40 border border-rose-800/60 text-xs text-rose-300 space-y-1">
+            <div className="font-bold flex items-center gap-1.5 text-rose-200">
+              <Clock className="w-4 h-4 text-rose-400" />
+              Invitation Link Expired
+            </div>
+            <p className="text-[11px] text-rose-300/80">
+              This invite link has passed its expiration time. Please ask {tripPreview.owner_name} for a new invitation link.
+            </p>
+          </div>
+        )}
+
+        {isInviteInactive && (
+          <div className="p-4 rounded-xl bg-amber-950/40 border border-amber-800/60 text-xs text-amber-300 space-y-1">
+            <div className="font-bold flex items-center gap-1.5 text-amber-200">
+              <Lock className="w-4 h-4 text-amber-400" />
+              Invite Link Inactive or Limit Reached
+            </div>
+            <p className="text-[11px] text-amber-300/80">
+              This link has reached its maximum participant limit or was revoked by the organizer.
+            </p>
+          </div>
+        )}
 
         {error && (
           <div className="p-3 rounded-xl bg-rose-950/40 border border-rose-800/60 text-xs text-rose-300 flex items-start gap-2">
@@ -177,6 +240,14 @@ export const JoinTripPage: React.FC = () => {
           <div className="p-4 rounded-xl bg-emerald-950/40 border border-emerald-800/60 text-emerald-300 text-xs flex items-center justify-center gap-2 font-semibold animate-fade-in">
             <CheckCircle2 className="w-4 h-4 text-emerald-400" />
             Joined trip successfully! Opening workspace...
+          </div>
+        ) : isInviteExpired || isInviteInactive ? (
+          <div className="text-center pt-2">
+            <Link to="/dashboard">
+              <Button variant="outline" size="sm" className="text-xs">
+                Back to Dashboard
+              </Button>
+            </Link>
           </div>
         ) : isAuthenticated ? (
           <div className="space-y-3">
@@ -203,7 +274,7 @@ export const JoinTripPage: React.FC = () => {
               <p className="font-semibold">You are participating in this trip as Guest ({guestSession?.displayName}).</p>
               <p className="text-amber-400/80 text-[11px]">You already have access to this trip workspace.</p>
             </div>
-            <Link to={`/trips/${id}`} className="block w-full">
+            <Link to={`/trips/${targetTripId}`} className="block w-full">
               <Button variant="primary" size="lg" className="w-full justify-center text-sm font-bold shadow-glow-brand">
                 Open Trip Workspace
               </Button>
@@ -211,7 +282,7 @@ export const JoinTripPage: React.FC = () => {
           </div>
         ) : (
           <div className="space-y-5">
-            {/* Quick Guest Join Form (Phase 4 Hybrid Membership) */}
+            {/* Quick Guest Join Form (Phase 4 Hybrid Membership & Phase 5 Token Invite) */}
             <form onSubmit={handleGuestJoin} className="space-y-3 p-4 rounded-2xl bg-slate-900/50 border border-slate-800/90">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-white flex items-center gap-1.5">
@@ -254,12 +325,12 @@ export const JoinTripPage: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              <Link to={`/login?redirect=/join/${trip.id}`} className="w-full">
+              <Link to={`/login?redirect=/join/${id}`} className="w-full">
                 <Button variant="outline" size="md" className="w-full justify-center text-xs" leftIcon={<LogIn className="w-3.5 h-3.5" />}>
                   Log In
                 </Button>
               </Link>
-              <Link to={`/register?redirect=/join/${trip.id}`} className="w-full">
+              <Link to={`/register?redirect=/join/${id}`} className="w-full">
                 <Button variant="outline" size="md" className="w-full justify-center text-xs" leftIcon={<UserPlus className="w-3.5 h-3.5" />}>
                   Register
                 </Button>
@@ -271,4 +342,3 @@ export const JoinTripPage: React.FC = () => {
     </div>
   );
 };
-
