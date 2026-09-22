@@ -1,8 +1,8 @@
 # Trip Finance — Project Status & Roadmap Tracker
 
-> **Last Updated:** September 21, 2026  
-> **Current Status:** Phases 0, 1, 2, 3, 4, 5, and 6 Complete (7 / 24 Phases Complete)  
-> **Next Milestone:** Phase 7 — Expense Management (Multi-mode splitting & ledger)
+> **Last Updated:** September 22, 2026  
+> **Current Status:** Phases 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, and 10 Complete (11 / 24 Phases Complete)  
+> **Next Milestone:** Phase 11 — Location-Based Expenses (Geolocation tagging & Leaflet trip map)
 
 ---
 
@@ -15,9 +15,9 @@ Trip Finance is a full-stack, modular-monolith web application built with **Fast
 | :--- | :---: | :--- | :--- |
 | **Backend API** | 🟢 Active | `http://127.0.0.1:8000` | FastAPI with reload, Swagger docs at `/docs`, Health check at `/api/health` |
 | **Frontend Web App** | 🟢 Active | `http://localhost:5173` | React 18, TypeScript, Vite, Tailwind CSS |
-| **Database** | 🟢 Active | `sqlite:///./trip_finance.db` | SQLAlchemy ORM + Alembic migrations (`001_initial_users`, `002_friends_groups_trips`, `003_add_trip_invites`) |
-| **Automated Tests** | 🟢 Passing | 20/20 tests pass | Pytest test suite covering auth, friends, groups, trips, invites, guest join, guest isolation, direct guest addition, and guest conversion |
-| **Production Build** | 🟢 Passing | `npm run build` | 0 TypeScript errors, bundle size ~495 kB JS |
+| **Database** | 🟢 Active | `sqlite:///./trip_finance.db` | SQLAlchemy ORM + Alembic migrations (`001_initial_users`, `002_friends_groups_trips`, `003_add_trip_invites`, `004_add_expenses_and_splits`, `005_add_settlements`) |
+| **Automated Tests** | 🟢 Passing | 24/24 tests pass | Pytest test suite covering auth, friends, groups, trips, invites, guest join, guest isolation, direct guest addition, guest conversion, multi-mode expense splits, balance/settlement graph, settlements tracking & ledger impact, and trip dashboard analytics |
+| **Production Build** | 🟢 Passing | `npm run build` | 0 TypeScript errors, production bundle compiled |
 
 ---
 
@@ -34,10 +34,10 @@ Tracked against [phases.md](file:///c:/Users/PC-5/Desktop/trip_mang/phases.md):
 | **4** | **Hybrid Membership** | 🟢 **Completed** | 2026-09-21 | Support for registered and guest members, guest session tokens, strict guest isolation, owner direct guest companion addition, seamless guest-to-account conversion preserving history. |
 | **5** | **Invite System** | 🟢 **Completed** | 2026-09-21 | Cryptographically secure invite tokens (SHA-256 hashed in DB), custom expiration presets (24h, 7d, 30d, Never), usage tracking (`max_uses`), owner link management (disable, regenerate), public preview, token join (registered & guest). |
 | **6** | **WhatsApp Trip Sharing** | 🟢 **Completed** | 2026-09-21 | One-click outbound WhatsApp formatted invitations (`https://api.whatsapp.com/send?text=...`), message preview modal, public join preview page, and join endpoints (strictly client deep-link, zero WhatsApp scraping). |
-| **7** | **Expense Management** | ⏸️ Queued | — | Add/edit/delete expenses, categories, 4 split types (Equal, Exact, Percentage, Shares). |
-| **8** | **Balance & Settlement Engine** | ⏸️ Queued | — | Decimal-safe net balance calculations (`Total Paid - Total Share`), debt minimization graph. |
-| **9** | **Settlement Management** | ⏸️ Queued | — | Settlement tracking (`PENDING`, `PAID`), payment records, and settlement history. |
-| **10** | **Budget & Trip Dashboard** | ⏸️ Queued | — | Budget velocity, category breakdown, spending summaries, trip analytics. |
+| **7** | **Expense Management** | 🟢 **Completed** | 2026-09-22 | Add/edit/delete shared expenses, 10 categories with color badges, 4 split methods (Equal, Exact, Percentage, Shares) with exact decimal cent distribution, auto-balance remaining payer, and WhatsApp expense sharing. |
+| **8** | **Balance & Settlement Engine** | 🟢 **Completed** | 2026-09-22 | Decimal-safe net balance calculations (`Total Paid - Total Share`), mathematical invariant verification (`sum(net_balances) == 0`), greedy debt minimization settlement graph, and WhatsApp settlement reminders. |
+| **9** | **Settlement Management** | 🟢 **Completed** | 2026-09-22 | Settlement tracking (`PENDING`, `PAID`, `CANCELLED`), 1-click debt payoff recording from suggestions, settlement history list, receipt generation, and balance ledger integration ($Net = Paid - Share + SettlementPaid - SettlementReceived$). |
+| **10** | **Budget & Trip Dashboard** | 🟢 **Completed** | 2026-09-22 | Central dashboard with budget velocity meter & threshold alerts (On Track, Caution, Over Budget), average daily spend, remaining daily budget, category distribution meter, daily timeline trends, and member spend ranking. |
 | **11** | **Location-Based Expenses** | ⏸️ Queued | — | Geolocation expense tagging, Leaflet/OpenStreetMap interactive trip map. |
 | **12** | **Location Analytics** | ⏸️ Queued | — | Spend breakdown by city, area, and geographic clusters. |
 | **13** | **WhatsApp Expense Sharing** | ⏸️ Queued | — | Outbound expense receipts and debt settlement sheets formatted for WhatsApp. |
@@ -163,13 +163,111 @@ Tracked against [phases.md](file:///c:/Users/PC-5/Desktop/trip_mang/phases.md):
   - Built `ManageInvitesModal` (`frontend/src/components/trips/ManageInvitesModal.tsx`) with link copying, WhatsApp share launcher, expiration selector, link history, revocation, and regeneration controls.
   - Upgraded `JoinTripPage` to validate cryptographic tokens, show expiration/inactivity alerts, and fall back to legacy trip IDs if needed.
   - Updated `WhatsAppShareModal` and `TripOverviewPage` to dynamically inject active cryptographic invite tokens into WhatsApp invitation texts.
-* **Automated Tests:** Added `backend/tests/test_invites.py` covering full lifecycle: token creation, public preview, expiration, max uses limit, registered join, guest join, revocation, and token rotation. 20/20 backend tests passing.
+### Phase 7: Expense Management
+* **Database Models & Migrations:**
+  - Created `Expense` model (`backend/app/models/expense.py`) with fields for title, exact decimal `Numeric(12, 2)` amount, currency, category, payer (`paid_by_member_id`), split method (`EQUAL`, `EXACT`, `PERCENTAGE`, `SHARES`), date, location, notes, and receipt URL.
+  - Created `ExpenseSplit` model (`backend/app/models/expense_split.py`) with cascade relationship, allocated amount, and stored `split_value`.
+  - Created and applied Alembic migration `004_add_expenses_and_splits.py`.
+* **Split Calculation Engine:**
+  - Built `split_calculator.py` with exact decimal cent distribution avoiding all floating-point rounding drift.
+  - Equal split automatically distributes remainder cents to first participants ensuring `sum(splits) == expense_amount`.
+  - Exact split validates sum to the penny and produces detailed 400 error messages if mismatched.
+  - Percentage split validates 100.00% sum and reconciles rounding differences.
+  - Shares split computes proportional allocations.
+* **API Endpoints:**
+  - `POST /api/trips/{trip_id}/expenses`: Record shared bill with multi-mode allocations.
+  - `GET /api/trips/{trip_id}/expenses`: Filterable by category, payer, search term, and sortable by date/amount.
+  - `GET /api/trips/{trip_id}/expenses/{expense_id}`: Full participant breakdown.
+  - `PATCH /api/trips/{trip_id}/expenses/{expense_id}`: Edit details and reallocate splits.
+  - `DELETE /api/trips/{trip_id}/expenses/{expense_id}`: Cascade deletes splits.
+* **Frontend UI & WhatsApp Sharing:**
+  - Built `ExpenseModal` supporting all 4 split modes with real-time balance calculations, category picker with tailored icons and color palettes, and companion selectors.
+  - Built `ExpenseDetailModal` showing full breakdown, payer info, and 1-click WhatsApp expense sharing link (`generateExpenseShareText`).
+
+### Phase 8: Balance & Settlement Engine
+* **Ledger & Invariant Validation:**
+  - Built `BalanceService` calculating `total_paid`, `total_share`, and `net_balance = total_paid - total_share` for every active companion.
+  - Verified core mathematical invariant: `sum(net_balances) == 0.00` across registered users and guest actors.
+  - Computes dynamic trip total spent, remaining budget, and percentage used.
+* **Greedy Debt Minimization Algorithm:**
+  - Greedily resolves debts between sorted creditors and debtors, yielding at most $N-1$ optimal settlement transfers.
+  - Endpoint: `GET /api/trips/{trip_id}/balances`.
+* **Frontend UI & WhatsApp Integration:**
+  - Built `BalancesTab` component featuring Member Balances Leaderboard, status badges (`Gets back`, `Owes`, `Settled`), and Minimized Suggested Settlements cards with visual transfer flow arrows.
+  - Built 1-click "Share Settlement Sheet" and individual WhatsApp settlement reminder buttons (`generateSettlementShareText`).
+  - Integrated dynamic budget meter in `TripOverviewPage` header reflecting real-time group spending.
+* **Automated Tests:**
+  - Added `backend/tests/test_expenses.py` and `backend/tests/test_balances.py` testing equal/odd-cent splits, exact splits, percentage splits, shares splits, net balances, and debt minimization graphs.
+  - Test suite: 22/22 tests passing. Production build: 0 TypeScript errors.
+
+### Phase 9: Settlement Management
+* **Database & Models:**
+  - Created `Settlement` model in `backend/app/models/settlement.py` with fields: `id`, `trip_id`, `from_member_id` (debtor), `to_member_id` (creditor), `amount`, `currency`, `status` (`PENDING`, `PAID`, `CANCELLED`), `payment_date`, `payment_method` (`UPI`, `Cash`, `Bank Transfer`, `Card`, `Other`), `notes`, `created_by_member_id`, and timestamps.
+  - Linked `Trip.settlements` relationship with cascade orphan removal.
+  - Executed Alembic migration `005_add_settlements.py` (`alembic current` is `005_add_settlements`).
+* **Balance Ledger Integration:**
+  - Updated `BalanceService` to incorporate `PAID` settlements into net balance computation:
+    $$\text{Net Balance} = (\text{Total Paid} - \text{Total Share}) + \text{Settlement Paid Out} - \text{Settlement Received}$$
+  - Preserved mathematical invariant $\sum \text{Net Balances} = 0.00$ at all times. Paying off a debt automatically decreases the debtor's debt, decreases the creditor's credit, and reduces remaining suggested transfers.
+* **Backend API & Service:**
+  - `POST /api/trips/{trip_id}/settlements`: Record settlement payment between two active trip companions.
+  - `GET /api/trips/{trip_id}/settlements`: List settlements with status filter (`ALL`, `PAID`, `PENDING`, `CANCELLED`) and summary totals (`total_settled_amount`, `total_pending_amount`).
+  - `GET /api/trips/{trip_id}/settlements/{settlement_id}`: Settlement details.
+  - `PATCH /api/trips/{trip_id}/settlements/{settlement_id}`: Update settlement or mark as `PAID` / `CANCELLED`.
+  - `DELETE /api/trips/{trip_id}/settlements/{settlement_id}`: Delete settlement with net balance rollback.
+* **Frontend UI Components:**
+  - `RecordSettlementModal.tsx`: Visual debt payoff modal pre-populating payer, recipient, amount, method pills, status, date, and notes.
+  - `SettlementHistoryList.tsx`: Filterable history list with instant "Mark as Paid", "Cancel", "Delete", and WhatsApp receipt generation.
+  - `BalancesTab.tsx`: Added 1-click **"Record Payment"** button directly on suggested transfer cards and embedded `SettlementHistoryList`.
+  - Added `generateSettlementReceiptText` to `services/whatsapp.ts`.
+* **Automated Tests:**
+  - Added `backend/tests/test_settlements.py` covering settlement CRUD, pending vs paid ledger effects, status transitions, and self-settlement/authorization prevention.
+
+### Phase 10: Budget & Trip Dashboard
+* **Metrics & Analytics Calculation Engine:**
+  - Built `DashboardService` (`backend/app/services/dashboard_service.py`) and schemas (`backend/app/schemas/dashboard.py`):
+    - **Budget Velocity & Burn Rate:** Total budget vs total spent, remaining budget, percentage used, budget status (`ON_TRACK` <75%, `CAUTION` 75-99%, `OVER_BUDGET` >=100%, `NO_BUDGET`).
+    - **Daily Spend Analytics:** Average daily spend, remaining daily budget allowance, total trip days, days elapsed, days remaining.
+    - **Category Spending Distribution:** Category ranking by spend, percentage of total pool, and count of transactions.
+    - **Daily Timeline Trends:** Grouped date spend aggregation for chart scaling.
+    - **Member Spending Contributions:** Leaderboard with total paid, percentage of total pool, share, and net balance.
+    - **Quick Activity Widgets:** Top 5 largest expenses, top 5 recent expenses, and settlements summary KPI.
+* **Backend API:**
+  - `GET /api/trips/{trip_id}/dashboard`: Centralized trip analytics payload.
+* **Frontend UI:**
+  - Built `TripDashboardTab.tsx` with animated budget velocity meter, color-coded threshold alerts, segmented multi-color category bar, responsive daily spending timeline histogram, member spend contribution cards, and largest expenses list.
+  - Updated `TripOverviewPage.tsx` with primary **Dashboard** tab (`Dashboard`, `Expenses`, `Balances & Settlements`, `Companions`).
+* **Automated Tests:**
+  - Added `backend/tests/test_dashboard.py` testing financial metrics parity, category distributions, largest expenses, and timeline trends.
+  - Overall test suite: 24/24 tests passing. Frontend build: 0 TypeScript errors.
 
 ---
 
 ## 4. Changelog & Activity Log
 
-### [2026-09-21]
+### [2026-09-22]
+- **Implemented Phase 9 (Settlement Management) & Phase 10 (Budget & Trip Dashboard):**
+  - Designed and executed Alembic migration `005_add_settlements.py`.
+  - Built `Settlement` model, repository, and service with authorization and balance ledger integration.
+  - Integrated paid settlements into `balance_service.py` ensuring $\sum \text{Net Balances} = 0.00$.
+  - Built API endpoints in `backend/app/api/settlements.py` and `backend/app/api/dashboard.py`.
+  - Created frontend components: `RecordSettlementModal`, `SettlementHistoryList`, and `TripDashboardTab`.
+  - Integrated 1-click "Record Payment" button on suggested transfers in `BalancesTab`.
+  - Added formatted WhatsApp settlement receipt sharing in `whatsapp.ts`.
+  - Added `test_settlements.py` and `test_dashboard.py` (24/24 Pytest tests passing).
+  - Validated live server via `test_live_phase9_10.py` (100% assertions passed).
+  - Compiled frontend production bundle (`npm run build`) with 0 errors.
+- **Implemented Phase 7 (Expense Management) & Phase 8 (Balance & Settlement Engine):**
+  - Designed and executed Alembic migration `004_add_expenses_and_splits.py`.
+  - Built decimal-safe calculation engine `split_calculator.py` supporting Equal, Exact, Percentage, and Shares splits.
+  - Implemented `Expense` and `ExpenseSplit` models, repository, and service with hybrid actor authorization.
+  - Implemented `BalanceService` with net balance calculation (`Total Paid - Total Share`) and graph-based greedy debt minimization.
+  - Built API routes in `backend/app/api/expenses.py` under `/api/trips/{trip_id}/expenses` and `/api/trips/{trip_id}/balances`.
+  - Built interactive frontend components: `ExpenseModal`, `ExpenseDetailModal`, and `BalancesTab`.
+  - Added outbound WhatsApp sharing generators in `whatsapp.ts` for expense breakdowns and settlement reminders.
+  - Revamped `TripOverviewPage` with dynamic tabs (Expenses, Balances & Settlements, Companions) and real-time budget meter.
+  - Created 2 new test modules: `test_expenses.py` and `test_balances.py`. All 22 backend tests passing.
+  - Verified frontend build with 0 TypeScript errors.
 - **Implemented Phase 5 (Invite System):**
   - Created Alembic migration `003_add_trip_invites.py` and executed database upgrade.
   - Created Pydantic schemas in `backend/app/schemas/invite.py`.

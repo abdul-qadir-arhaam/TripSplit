@@ -34,4 +34,6 @@ class Trip(Base):
     owner = relationship("User", foreign_keys=[owner_id])
     members = relationship("TripMember", back_populates="trip", cascade="all, delete-orphan")
     invites = relationship("TripInvite", back_populates="trip", cascade="all, delete-orphan")
+    expenses = relationship("Expense", back_populates="trip", cascade="all, delete-orphan")
+    settlements = relationship("Settlement", back_populates="trip", cascade="all, delete-orphan")
 
