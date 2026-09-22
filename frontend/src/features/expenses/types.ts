@@ -19,18 +19,24 @@ export interface SplitItemInput {
   shares?: number | string;
 }
 
+export interface ExpensePayerInput {
+  member_id: string;
+  amount: number | string;
+}
+
 export interface ExpenseCreate {
   title: string;
   amount: number;
   currency?: string;
   category?: string;
-  paid_by_member_id: string;
+  paid_by_member_id?: string;
   split_method: SplitMethod;
   expense_date?: string;
   location_name?: string;
   notes?: string;
   receipt_url?: string;
   splits?: SplitItemInput[];
+  payers?: ExpensePayerInput[];
 }
 
 export interface ExpenseUpdate {
@@ -45,6 +51,7 @@ export interface ExpenseUpdate {
   notes?: string;
   receipt_url?: string;
   splits?: SplitItemInput[];
+  payers?: ExpensePayerInput[];
 }
 
 export interface ExpenseSplit {
@@ -57,6 +64,15 @@ export interface ExpenseSplit {
   member_type: 'REGISTERED' | 'GUEST';
 }
 
+export interface ExpensePayer {
+  id: string;
+  expense_id: string;
+  member_id: string;
+  member_display_name: string;
+  member_type: 'REGISTERED' | 'GUEST';
+  amount: string | number;
+}
+
 export interface Expense {
   id: string;
   trip_id: string;
@@ -66,6 +82,7 @@ export interface Expense {
   category: string;
   paid_by_member_id: string;
   paid_by_name: string;
+  is_multiple_payers?: boolean;
   split_method: SplitMethod;
   expense_date: string;
   location_name?: string | null;
@@ -75,6 +92,7 @@ export interface Expense {
   created_at: string;
   updated_at: string;
   split_count: number;
+  payers?: ExpensePayer[];
 }
 
 export interface ExpenseDetail extends Expense {

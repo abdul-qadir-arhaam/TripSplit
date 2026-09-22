@@ -813,8 +813,13 @@ export const TripOverviewPage: React.FC = () => {
                         </div>
 
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
-                          <span>
+                          <span className="flex items-center gap-1.5">
                             Paid by <strong className="text-emerald-400 font-medium">{expense.paid_by_name}</strong>
+                            {expense.is_multiple_payers && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                Multi-Payer
+                              </span>
+                            )}
                           </span>
                           <span>•</span>
                           <span>Split: <strong className="text-slate-300">{expense.split_method}</strong> ({expense.split_count} people)</span>
@@ -856,6 +861,7 @@ export const TripOverviewPage: React.FC = () => {
                             category: expense.category,
                             location_name: expense.location_name,
                             notes: expense.notes,
+                            payers: expense.payers,
                           });
                           openWhatsApp(text);
                         }}

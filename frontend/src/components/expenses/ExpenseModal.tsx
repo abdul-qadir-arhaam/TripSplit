@@ -14,7 +14,9 @@ import {
   ShoppingBag,
   Coffee,
   HelpCircle,
-  Users
+  Users,
+  User,
+  Sparkles
 } from 'lucide-react';
 import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
@@ -28,7 +30,8 @@ import type {
   ExpenseUpdate, 
   SplitMethod, 
   ExpenseCategory,
-  SplitItemInput 
+  SplitItemInput,
+  ExpensePayerInput
 } from '../../features/expenses/types';
 
 interface ExpenseModalProps {
@@ -67,6 +70,9 @@ export const ExpenseModal: React.FC<ExpenseModalProps> = ({
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState<ExpenseCategory>('Food');
   const [paidByMemberId, setPaidByMemberId] = useState('');
+  const [payerMode, setPayerMode] = useState<'SINGLE' | 'MULTIPLE'>('SINGLE');
+  const [selectedPayerIds, setSelectedPayerIds] = useState<string[]>([]);
+  const [payerAmounts, setPayerAmounts] = useState<Record<string, string>>({});
   const [expenseDate, setExpenseDate] = useState('');
   const [locationName, setLocationName] = useState('');
   const [notes, setNotes] = useState('');
@@ -89,11 +95,28 @@ export const ExpenseModal: React.FC<ExpenseModalProps> = ({
       setTitle(initialExpense.title);
       setAmount(String(initialExpense.amount));
       setCategory((initialExpense.category as ExpenseCategory) || 'Food');
-      setPaidByMemberId(initialExpense.paid_by_member_id);
       setExpenseDate(initialExpense.expense_date ? initialExpense.expense_date.substring(0, 10) : '');
       setLocationName(initialExpense.location_name || '');
       setNotes(initialExpense.notes || '');
       setSplitMethod(initialExpense.split_method || 'EQUAL');
+
+      // Payers initialization
+      if (initialExpense.payers && initialExpense.payers.length > 1) {
+        setPayerMode('MULTIPLE');
+        const pIds = initialExpense.payers.map(p => p.member_id);
+        setSelectedPayerIds(pIds);
+        const pMap: Record<string, string> = {};
+        initialExpense.payers.forEach(p => {
+          pMap[p.member_id] = String(p.amount);
+        });
+        setPayerAmounts(pMap);
+        setPaidByMemberId(initialExpense.paid_by_member_id);
+      } else {
+        setPayerMode('SINGLE');
+        setPaidByMemberId(initialExpense.paid_by_member_id || defaultPayerId || tripMembers[0]?.id || '');
+        setSelectedPayerIds(tripMembers.map(m => m.id));
+        setPayerAmounts({});
+      }
 
       const splitIds = initialExpense.splits.map(s => s.member_id);
       setSelectedMemberIds(splitIds);
@@ -116,7 +139,11 @@ export const ExpenseModal: React.FC<ExpenseModalProps> = ({
       setTitle('');
       setAmount('');
       setCategory('Food');
-      setPaidByMemberId(defaultPayerId || tripMembers[0]?.id || '');
+      const defaultPayer = defaultPayerId || tripMembers[0]?.id || '';
+      setPaidByMemberId(defaultPayer);
+      setPayerMode('SINGLE');
+      setSelectedPayerIds(tripMembers.map(m => m.id));
+      setPayerAmounts({});
       setExpenseDate(new Date().toISOString().substring(0, 10));
       setLocationName('');
       setNotes('');
@@ -187,6 +214,128 @@ export const ExpenseModal: React.FC<ExpenseModalProps> = ({
         return prev;
       });
     }
+
+    if (newTotal > 0 && payerMode === 'MULTIPLE' && selectedPayerIds.length >= 2) {
+      setPayerAmounts(prev => {
+        const nonZeroPayers = selectedPayerIds.filter(id => {
+          const v = parseFloat(prev[id] || '0');
+          return !isNaN(v) && v > 0;
+        });
+        if (nonZeroPayers.length === 1 && selectedPayerIds.length === 2) {
+          const p1 = nonZeroPayers[0];
+          const p2 = selectedPayerIds.find(id => id !== p1)!;
+          const val1 = parseFloat(prev[p1] || '0');
+          const rem = Math.max(0, newTotal - val1);
+          return {
+            ...prev,
+            [p2]: Number.isInteger(rem) ? String(rem) : rem.toFixed(2),
+          };
+        } else if (nonZeroPayers.length === selectedPayerIds.length) {
+          const lastPayerId = selectedPayerIds[selectedPayerIds.length - 1];
+          const sumOthers = selectedPayerIds
+            .filter(id => id !== lastPayerId)
+            .reduce((sum, id) => sum + (parseFloat(prev[id] || '0') || 0), 0);
+          const rem = Math.max(0, newTotal - sumOthers);
+          return {
+            ...prev,
+            [lastPayerId]: Number.isInteger(rem) ? String(rem) : rem.toFixed(2),
+          };
+        }
+        return prev;
+      });
+    }
+  };
+
+  const handlePayerToggle = (memberId: string) => {
+    setSelectedPayerIds(prev => {
+      const isSelected = prev.includes(memberId);
+      if (isSelected) {
+        const next = prev.filter(id => id !== memberId);
+        setPayerAmounts(curr => {
+          const copy = { ...curr };
+          delete copy[memberId];
+          return copy;
+        });
+        return next;
+      } else {
+        return [...prev, memberId];
+      }
+    });
+  };
+
+  const handleSelectAllPayers = () => {
+    setSelectedPayerIds(tripMembers.map(m => m.id));
+  };
+
+  const handleSplitEvenlyPayers = () => {
+    if (selectedPayerIds.length === 0 || totalNum <= 0) return;
+    const count = selectedPayerIds.length;
+    const baseShare = Math.floor((totalNum / count) * 100) / 100;
+    const remainder = Math.round((totalNum - (baseShare * count)) * 100) / 100;
+
+    const newMap: Record<string, string> = {};
+    selectedPayerIds.forEach((id, idx) => {
+      const amt = idx === 0 ? (baseShare + remainder).toFixed(2) : baseShare.toFixed(2);
+      newMap[id] = Number.isInteger(parseFloat(amt)) ? String(parseFloat(amt)) : amt;
+    });
+    setPayerAmounts(newMap);
+  };
+
+  const handlePayerAmountChange = (changedMemberId: string, val: string) => {
+    setPayerAmounts(prev => {
+      const updated = { ...prev, [changedMemberId]: val };
+      if (totalNum <= 0 || selectedPayerIds.length < 2) return updated;
+
+      const changedVal = parseFloat(val);
+      if (val === '' || isNaN(changedVal)) return updated;
+
+      const otherPayerIds = selectedPayerIds.filter(id => id !== changedMemberId);
+
+      // Case 1: Exactly 2 payers
+      if (otherPayerIds.length === 1) {
+        const otherId = otherPayerIds[0];
+        const remaining = Math.max(0, totalNum - changedVal);
+        const formatted = Number.isInteger(remaining) ? String(remaining) : remaining.toFixed(2);
+        updated[otherId] = formatted;
+        return updated;
+      }
+
+      // Case 2: 3+ payers, check if exactly 1 other is empty
+      const emptyOthers = otherPayerIds.filter(id => !updated[id] || updated[id].trim() === '');
+      if (emptyOthers.length === 1) {
+        const targetId = emptyOthers[0];
+        const sumFilled = selectedPayerIds
+          .filter(id => id !== targetId)
+          .reduce((sum, id) => sum + (parseFloat(updated[id] || '0') || 0), 0);
+        const remaining = Math.max(0, totalNum - sumFilled);
+        const formatted = Number.isInteger(remaining) ? String(remaining) : remaining.toFixed(2);
+        updated[targetId] = formatted;
+        return updated;
+      }
+
+      // Case 3: All others have values, update last other
+      if (emptyOthers.length === 0) {
+        const lastOtherId = otherPayerIds[otherPayerIds.length - 1];
+        const sumOthersExcludingLast = selectedPayerIds
+          .filter(id => id !== lastOtherId)
+          .reduce((sum, id) => sum + (parseFloat(updated[id] || '0') || 0), 0);
+        const remaining = Math.max(0, totalNum - sumOthersExcludingLast);
+        const formatted = Number.isInteger(remaining) ? String(remaining) : remaining.toFixed(2);
+        updated[lastOtherId] = formatted;
+        return updated;
+      }
+
+      return updated;
+    });
+  };
+
+  const handleFillRemainingPayer = (memberId: string) => {
+    const sumOthers = selectedPayerIds
+      .filter(id => id !== memberId)
+      .reduce((sum, id) => sum + (parseFloat(payerAmounts[id] || '0') || 0), 0);
+    const remaining = Math.max(0, totalNum - sumOthers);
+    const formatted = Number.isInteger(remaining) ? String(remaining) : remaining.toFixed(2);
+    setPayerAmounts(prev => ({ ...prev, [memberId]: formatted }));
   };
 
   const handleExactAmountChange = (changedMemberId: string, val: string) => {
@@ -346,6 +495,45 @@ export const ExpenseModal: React.FC<ExpenseModalProps> = ({
 
   const splitValidation = getSplitValidation();
 
+  const getPayerValidation = (): { isValid: boolean; message?: string } => {
+    if (totalNum <= 0) return { isValid: false, message: 'Expense amount must be greater than 0' };
+
+    if (payerMode === 'SINGLE') {
+      if (!paidByMemberId) return { isValid: false, message: 'Please select who paid for this expense.' };
+      return { isValid: true };
+    }
+
+    if (selectedPayerIds.length === 0) {
+      return { isValid: false, message: 'Select at least one contributor who paid.' };
+    }
+
+    const sumPaid = selectedPayerIds.reduce((sum, id) => {
+      const val = parseFloat(payerAmounts[id] || '0') || 0;
+      return sum + val;
+    }, 0);
+
+    const hasZeroOrNegative = selectedPayerIds.some(id => {
+      const val = parseFloat(payerAmounts[id] || '0') || 0;
+      return val <= 0;
+    });
+
+    if (hasZeroOrNegative) {
+      return { isValid: false, message: 'Each selected contributor must have a paid amount greater than 0.' };
+    }
+
+    const diff = Math.abs(sumPaid - totalNum);
+    if (diff > 0.01) {
+      return {
+        isValid: false,
+        message: `Contributors total (${currSym}${sumPaid.toFixed(2)}) must equal expense amount (${currSym}${totalNum.toFixed(2)})`
+      };
+    }
+
+    return { isValid: true };
+  };
+
+  const payerValidation = getPayerValidation();
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) {
@@ -356,13 +544,26 @@ export const ExpenseModal: React.FC<ExpenseModalProps> = ({
       setValidationError('Please enter a valid amount.');
       return;
     }
-    if (!paidByMemberId) {
-      setValidationError('Please select who paid for this expense.');
+    if (!payerValidation.isValid) {
+      setValidationError(payerValidation.message || 'Please check contributor payment amounts.');
       return;
     }
     if (!splitValidation.isValid) {
       setValidationError(splitValidation.message || 'Please check split allocations.');
       return;
+    }
+
+    // Build payers payload
+    let payersPayload: ExpensePayerInput[] | undefined = undefined;
+    let primaryPayerId = paidByMemberId;
+
+    if (payerMode === 'MULTIPLE') {
+      payersPayload = selectedPayerIds.map(id => ({
+        member_id: id,
+        amount: parseFloat(payerAmounts[id] || '0') || 0,
+      }));
+      const highest = payersPayload.reduce((max, p) => (p.amount as number) > (max.amount as number) ? p : max, payersPayload[0]);
+      primaryPayerId = highest.member_id;
     }
 
     // Build splits payload
@@ -400,7 +601,8 @@ export const ExpenseModal: React.FC<ExpenseModalProps> = ({
       amount: totalNum,
       currency: currency || 'INR',
       category,
-      paid_by_member_id: paidByMemberId,
+      paid_by_member_id: primaryPayerId,
+      payers: payersPayload,
       split_method: splitMethod,
       expense_date: expenseDate ? new Date(expenseDate).toISOString() : undefined,
       location_name: locationName.trim() || undefined,
@@ -517,37 +719,216 @@ export const ExpenseModal: React.FC<ExpenseModalProps> = ({
             </div>
           </div>
 
-          {/* Middle Row: Paid By & Date */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                Paid By
-              </label>
-              <select
-                value={paidByMemberId}
-                onChange={e => setPaidByMemberId(e.target.value)}
-                className="w-full px-3.5 py-2.5 bg-slate-900/60 border border-slate-800 rounded-xl text-white text-sm focus:outline-none focus:border-brand-500"
-                required
-              >
-                {tripMembers.map(m => (
-                  <option key={m.id} value={m.id} className="bg-slate-900 text-white">
-                    {m.display_name} {m.member_type === 'GUEST' ? '(Guest)' : ''}
-                  </option>
-                ))}
-              </select>
+          {/* Paid By Section */}
+          <div className="space-y-3 pt-1">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300">
+                  Paid By
+                </label>
+                <p className="text-[11px] text-slate-400">
+                  {payerMode === 'SINGLE'
+                    ? 'One person covered the bill'
+                    : 'Multiple members contributed towards this bill'}
+                </p>
+              </div>
+
+              {/* Single / Multiple Mode Toggle */}
+              <div className="flex rounded-xl bg-slate-950 p-1 border border-slate-800 self-start sm:self-auto">
+                <button
+                  type="button"
+                  onClick={() => setPayerMode('SINGLE')}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                    payerMode === 'SINGLE'
+                      ? 'bg-brand-500 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <User className="w-3.5 h-3.5" />
+                  Single Payer
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPayerMode('MULTIPLE');
+                    if (selectedPayerIds.length === 0) {
+                      setSelectedPayerIds(tripMembers.map(m => m.id));
+                    }
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                    payerMode === 'MULTIPLE'
+                      ? 'bg-brand-500 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <Users className="w-3.5 h-3.5" />
+                  Multiple People
+                </button>
+              </div>
             </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                Date
-              </label>
-              <input
-                type="date"
-                value={expenseDate}
-                onChange={e => setExpenseDate(e.target.value)}
-                className="w-full px-3.5 py-2.5 bg-slate-900/60 border border-slate-800 rounded-xl text-white text-sm focus:outline-none focus:border-brand-500 [color-scheme:dark]"
-              />
-            </div>
+            {/* Mode 1: Single Payer */}
+            {payerMode === 'SINGLE' ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <select
+                    value={paidByMemberId}
+                    onChange={e => setPaidByMemberId(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-slate-900/60 border border-slate-800 rounded-xl text-white text-sm focus:outline-none focus:border-brand-500"
+                    required
+                  >
+                    {tripMembers.map(m => (
+                      <option key={m.id} value={m.id} className="bg-slate-900 text-white">
+                        {m.display_name} {m.member_type === 'GUEST' ? '(Guest)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <input
+                    type="date"
+                    value={expenseDate}
+                    onChange={e => setExpenseDate(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-slate-900/60 border border-slate-800 rounded-xl text-white text-sm focus:outline-none focus:border-brand-500 [color-scheme:dark]"
+                  />
+                </div>
+              </div>
+            ) : (
+              /* Mode 2: Multiple Contributors */
+              <div className="space-y-3 p-4 rounded-xl bg-slate-950/60 border border-slate-800/80">
+                {/* Date Input & Actions for Multiple Mode */}
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-800/60 text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-400">Expense Date:</span>
+                    <input
+                      type="date"
+                      value={expenseDate}
+                      onChange={e => setExpenseDate(e.target.value)}
+                      className="px-2.5 py-1 bg-slate-900/80 border border-slate-800 rounded-lg text-white text-xs focus:outline-none focus:border-brand-500 [color-scheme:dark]"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleSelectAllPayers}
+                      className="text-brand-400 hover:underline text-xs"
+                    >
+                      Select All
+                    </button>
+                    <span className="text-slate-600">•</span>
+                    <button
+                      type="button"
+                      onClick={handleSplitEvenlyPayers}
+                      className="text-emerald-400 hover:underline text-xs flex items-center gap-1"
+                      title="Evenly divide the total expense among selected contributors"
+                    >
+                      <Sparkles className="w-3 h-3" />
+                      Split Evenly
+                    </button>
+                  </div>
+                </div>
+
+                {/* Contributors Selection Checkboxes */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                  {tripMembers.map(m => {
+                    const isSelected = selectedPayerIds.includes(m.id);
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => handlePayerToggle(m.id)}
+                        className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-xs text-left transition-all ${
+                          isSelected
+                            ? 'bg-emerald-500/10 border-emerald-500/40 text-white font-medium'
+                            : 'bg-slate-900/30 border-slate-800/60 text-slate-400 hover:border-slate-700'
+                        }`}
+                      >
+                        <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 ${
+                          isSelected ? 'bg-emerald-500 border-emerald-500 text-slate-950' : 'border-slate-700'
+                        }`}>
+                          {isSelected && <Check className="w-2.5 h-2.5 stroke-[3]" />}
+                        </div>
+                        <span className="truncate">{m.display_name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Amount Inputs for Each Selected Payer */}
+                <div className="space-y-2 pt-2 border-t border-slate-800/60">
+                  <div className="flex items-center justify-between text-xs text-slate-400">
+                    <span>Enter payment amounts:</span>
+                    <div className="flex items-center gap-2">
+                      <span className={`font-bold ${payerValidation.isValid ? 'text-emerald-400' : 'text-amber-400'}`}>
+                        Paid: {currSym}
+                        {selectedPayerIds.reduce((sum, id) => sum + (parseFloat(payerAmounts[id] || '0') || 0), 0).toFixed(2)}{' '}
+                        / {currSym}{totalNum.toFixed(2)}
+                      </span>
+                      {payerValidation.isValid && (
+                        <span className="text-emerald-400 text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20">
+                          Balanced ✓
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {tripMembers
+                    .filter(m => selectedPayerIds.includes(m.id))
+                    .map(m => {
+                      const currentVal = parseFloat(payerAmounts[m.id] || '0') || 0;
+                      const totalAllocated = selectedPayerIds.reduce((sum, id) => sum + (parseFloat(payerAmounts[id] || '0') || 0), 0);
+                      const remainingToTotal = Math.max(0, totalNum - (totalAllocated - currentVal));
+
+                      return (
+                        <div
+                          key={m.id}
+                          className="flex items-center justify-between gap-3 p-2 rounded-xl bg-slate-900/40 border border-slate-800/50"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className="w-6 h-6 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-[10px] font-bold text-emerald-400 shrink-0">
+                              {m.display_name[0]?.toUpperCase()}
+                            </div>
+                            <span className="text-xs font-medium text-white truncate max-w-[130px]">
+                              {m.display_name}
+                            </span>
+                            {m.member_type === 'GUEST' && (
+                              <span className="text-[9px] px-1 py-0.2 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                                Guest
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            {totalNum > 0 && Math.abs(totalAllocated - totalNum) > 0.01 && (
+                              <button
+                                type="button"
+                                onClick={() => handleFillRemainingPayer(m.id)}
+                                className="text-[10px] text-emerald-400 hover:text-emerald-300 hover:underline px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 transition-colors shrink-0"
+                                title={`Auto-fill remaining ${currSym}${remainingToTotal.toFixed(2)} for ${m.display_name}`}
+                              >
+                                Auto-fill {currSym}{remainingToTotal.toFixed(2)}
+                              </button>
+                            )}
+                            <div className="flex items-center gap-1.5 w-28">
+                              <span className="text-xs text-slate-400">{currSym}</span>
+                              <input
+                                type="number"
+                                step="0.01"
+                                placeholder="0.00"
+                                value={payerAmounts[m.id] || ''}
+                                onChange={e => handlePayerAmountChange(m.id, e.target.value)}
+                                className="w-full px-2 py-1.5 bg-slate-950 border border-slate-800 rounded-lg text-xs text-white text-right font-medium focus:border-brand-500 focus:outline-none"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Optional: Location & Notes */}
@@ -835,7 +1216,7 @@ export const ExpenseModal: React.FC<ExpenseModalProps> = ({
             <Button
               type="submit"
               variant="primary"
-              disabled={isSubmitting || !splitValidation.isValid}
+              disabled={isSubmitting || !splitValidation.isValid || !payerValidation.isValid}
               leftIcon={isSubmitting ? <Spinner size="sm" /> : <Check className="w-4 h-4" />}
             >
               {isSubmitting ? 'Saving...' : initialExpense ? 'Save Changes' : 'Record Expense'}

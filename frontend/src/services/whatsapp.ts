@@ -72,15 +72,22 @@ export function generateExpenseShareText(
     location_name?: string | null;
     notes?: string | null;
     splits?: Array<{ member_display_name: string; amount: string | number }>;
+    payers?: Array<{ member_display_name: string; amount: string | number }>;
   }
 ): string {
   const origin = window.location.origin;
   const tripUrl = `${origin}/trips/${tripId}`;
   const sym = expense.currency === 'INR' ? '₹' : expense.currency;
 
+  let paidByBlock = `💳 *Paid by:* ${expense.paid_by_name}\n`;
+  if (expense.payers && expense.payers.length > 1) {
+    paidByBlock = '💳 *Paid by Multiple Contributors:*\n' +
+      expense.payers.map(p => `• ${p.member_display_name}: ${sym}${Number(p.amount).toLocaleString()}`).join('\n') + '\n';
+  }
+
   let splitsBlock = '';
   if (expense.splits && expense.splits.length > 0) {
-    splitsBlock = '\n👥 *Participants:*\n' +
+    splitsBlock = '\n👥 *Participants Breakdown:*\n' +
       expense.splits.map(s => `• ${s.member_display_name}: ${sym}${Number(s.amount).toLocaleString()}`).join('\n') + '\n';
   }
 
@@ -91,7 +98,7 @@ export function generateExpenseShareText(
     `🧾 *Trip Expense: ${tripName}*\n\n` +
     `📌 *Expense:* ${expense.title} (${expense.category})\n` +
     `💰 *Amount:* ${sym}${Number(expense.amount).toLocaleString()}\n` +
-    `💳 *Paid by:* ${expense.paid_by_name}\n` +
+    paidByBlock +
     splitsBlock +
     locationBlock +
     notesBlock +

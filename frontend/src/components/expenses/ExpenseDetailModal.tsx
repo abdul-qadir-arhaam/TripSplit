@@ -77,13 +77,16 @@ export const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
       location_name: expense.location_name,
       notes: expense.notes,
       splits: expense.splits,
+      payers: expense.payers,
     });
     openWhatsApp(text);
   };
 
+  const isMultiPayer = Boolean(expense.is_multiple_payers || (expense.payers && expense.payers.length > 1));
+
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
-      <Card variant="glass" className="w-full max-w-lg p-6 space-y-5 animate-slide-up">
+      <Card variant="glass" className="w-full max-w-lg p-6 space-y-5 animate-slide-up max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-start justify-between pb-3 border-b border-slate-800">
           <div className="flex items-center gap-3">
@@ -94,6 +97,9 @@ export const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
               <div className="flex items-center gap-2">
                 <Badge variant="default" size="sm">{expense.category}</Badge>
                 <Badge variant="default" size="sm">Split: {expense.split_method}</Badge>
+                {isMultiPayer && (
+                  <Badge variant="success" size="sm">Multi-Payer</Badge>
+                )}
               </div>
               <h2 className="text-xl font-bold text-white mt-1">{expense.title}</h2>
             </div>
@@ -115,13 +121,68 @@ export const ExpenseDetailModal: React.FC<ExpenseDetailModalProps> = ({
             </div>
           </div>
           <div className="text-right">
-            <span className="text-xs text-slate-400">Paid by</span>
+            <span className="text-xs text-slate-400">
+              {isMultiPayer ? 'Paid by' : 'Paid by'}
+            </span>
             <div className="text-sm font-semibold text-emerald-400 flex items-center gap-1.5 justify-end">
               <CreditCard className="w-3.5 h-3.5" />
-              {expense.paid_by_name}
+              {isMultiPayer && expense.payers
+                ? `${expense.payers.length} Contributors`
+                : expense.paid_by_name}
             </div>
           </div>
         </div>
+
+        {/* Multi-Payer Contributors Card */}
+        {isMultiPayer && expense.payers && expense.payers.length > 0 && (
+          <div className="p-3.5 rounded-xl bg-slate-950/50 border border-slate-800/80 space-y-2.5">
+            <div className="flex items-center justify-between text-xs font-semibold text-slate-400">
+              <span className="flex items-center gap-1.5 uppercase tracking-wider text-emerald-400">
+                <CreditCard className="w-3.5 h-3.5" />
+                Contributors Breakdown ({expense.payers.length})
+              </span>
+              <span className="text-slate-400 text-[11px]">
+                Total: {sym}{Number(expense.amount).toFixed(2)}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {expense.payers.map(p => {
+                const paidAmt = Number(p.amount);
+                const expAmt = Number(expense.amount) || 1;
+                const pct = ((paidAmt / expAmt) * 100).toFixed(0);
+                return (
+                  <div
+                    key={p.id}
+                    className="flex items-center justify-between p-2.5 rounded-xl bg-slate-900/60 border border-slate-800/70 text-xs"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-6 h-6 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-[10px] font-bold text-emerald-400 shrink-0">
+                        {p.member_display_name[0]?.toUpperCase()}
+                      </div>
+                      <div className="truncate">
+                        <span className="font-medium text-white truncate block">
+                          {p.member_display_name}
+                        </span>
+                        {p.member_type === 'GUEST' && (
+                          <span className="text-[9px] text-amber-400 block">Guest</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <span className="font-bold text-emerald-400">
+                        {sym}{paidAmt.toFixed(2)}
+                      </span>
+                      <span className="text-[10px] text-slate-500 block">
+                        ({pct}%)
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Metadata Strip */}
         <div className="grid grid-cols-2 gap-3 text-xs text-slate-400">
